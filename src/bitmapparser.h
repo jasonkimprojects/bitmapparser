@@ -124,7 +124,7 @@ class BitmapParser {
 
      // Helper method for importing the info header.
      void import_infoheader() {
-         // Only planes and bits per pixel are words.       
+         // Only planes and bits per pixel are words.
          fread(&(_infoheader.size), 1, DWORD, _fileptr);
          fread(&(_infoheader.width), 1, DWORD, _fileptr);
          fread(&(_infoheader.height), 1, DWORD, _fileptr);
@@ -229,10 +229,10 @@ class BitmapParser {
         fseek(_fileptr, (3 * _infoheader.width), SEEK_CUR);
 
         // Sanity check - seems to work.
-        // TODO continue parsing pixels. Watch for padding.
+        // TODO(Jason): continue parsing pixels. Watch for padding.
         uint8_t firstpixel[3];
         fread(firstpixel, 1, 3, _fileptr);
-        
+
         print_metadata(false);
         print_metadata(true);
     }
