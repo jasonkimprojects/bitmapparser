@@ -4,6 +4,13 @@ bitmapparser.h
 
 A simple library to read, write, and edit bitmap images. 
 Written as a side project to study file processing, and for fun.
+This library will only make basic and absolutely needed checks
+and exceptions on user behavior, and trusts the user otherwise.
+A consequence is that broken bitmap images are possible if,
+for example, a pixels vector of different dimension is replaced
+without changing data in the header and info header.
+
+At the time, only 24-bit color (RGB, 0-255) is supported.
 
 The style confroms to Google's coding style guide for C++,
 and has been checked with cpplint.
@@ -12,8 +19,8 @@ Jason Kim
 June 13, 2019
 */
 
-#ifndef SRC_BITMAPPARSER_H_
-#define SRC_BITMAPPARSER_H_
+#ifndef BITMAPPARSER_H_
+#define BITMAPPARSER_H_
 
 // For printing
 #include <iostream>
@@ -28,16 +35,12 @@ June 13, 2019
 // For custom exceptions.
 #include <exception>
 
-// Constants for array length. Just for consistency.
-const size_t TWO = 2;
-const size_t FOUR = 4;
-
 // For organizing the 14-byte header.
 struct Header {
-    unsigned char signature[TWO];
-    unsigned char filesize[FOUR];
-    unsigned char reserved[FOUR];
-    unsigned char dataoffset[FOUR];
+    uint16_t signature;
+    uint32_t file_size;
+    uint32_t reserved;
+    uint32_t data_offset;
 };
 
 /*
@@ -46,23 +49,37 @@ Some bitmaps have negative height, where
 the pixels are stored upside down.
 */
 struct InfoHeader {
-    unsigned char size[FOUR];
-    unsigned char width[FOUR];
-    unsigned char height[FOUR];
-    unsigned char planes[TWO];
-    unsigned char bits_per_pixel[TWO];
-    unsigned char compression[FOUR];
-    unsigned char image_size[FOUR];
-    unsigned char xpixelsperm[FOUR];
-    unsigned char ypixelsperm[FOUR];
-    unsigned char colors_used[FOUR];
-    unsigned char important_colors[FOUR];
+    uint32_t size;
+    uint32_t width;
+    int32_t height;
+    uint16_t planes;
+    uint16_t bits_per_pixel;
+    uint32_t compression;
+    uint32_t image_size;
+    uint32_t x_pixels_per_meter;
+    uint32_t y_pixels_per_meter;
+    uint32_t colors_used;
+    uint32_t important_colors;
+};
+
+// For representing standard RGB pixels (0-255).
+struct Pixel {
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
 };
 
 // Custom exception for when the bitmap signature is wrong.
 class InvalidFormatException : public std::exception {
     const char* what() const throw() override {
         return "Invalid file format, not a bitmap image!";
+    }
+};
+
+// Custom exception for when the color scheme is not 24-bit.
+class UnsupportedException : public std::exception {
+    const char* what() const throw() override {
+        return "Only 24-bit RGB is supported at this time.";
     }
 };
 
@@ -75,146 +92,194 @@ class FileOpenException : public std::exception {
 
 class BitmapParser {
  private:
-     FILE* fileptr_;
-     Header header_;
-     InfoHeader infoheader_;
-     std::vector<std::vector<unsigned char> > pixels_;
+     // Constants for word/dword size in bytes
+     static const size_t WORD = 2;
+     static const size_t DWORD = 4;
+
+     /*
+     Containers per section of the bitmap file:
+     File pointer, header, infoheader, and pixels vector.
+     */
+     FILE* _fileptr;
+     Header _header;
+     InfoHeader _infoheader;
+     std::vector<std::vector<Pixel> > _pixels;
+
+     // Helper method for importing the header.
+     void import_header() {
+         /*
+           The signature is the only word.
+           A buffer is needed to switch the endianness
+           for the signature only, so it reads 42 4D not 4D 42.
+           All other fields are little endian.
+           */
+         uint8_t word_buf[WORD];
+         fread(word_buf, 1, WORD, _fileptr);
+         _header.signature = static_cast<uint16_t>(word_buf[1]) |
+             (static_cast<uint16_t>(word_buf[0]) << 8);
+         fread(&(_header.file_size), 1, DWORD, _fileptr);
+         fread(&(_header.reserved), 1, DWORD, _fileptr);
+         fread(&(_header.data_offset), 1, DWORD, _fileptr);
+     }
+
+     // Helper method for importing the info header.
+     void import_infoheader() {
+         // Only planes and bits per pixel are words.       
+         fread(&(_infoheader.size), 1, DWORD, _fileptr);
+         fread(&(_infoheader.width), 1, DWORD, _fileptr);
+         fread(&(_infoheader.height), 1, DWORD, _fileptr);
+         fread(&(_infoheader.planes), 1, WORD, _fileptr);
+         fread(&(_infoheader.bits_per_pixel), 1, WORD, _fileptr);
+         fread(&(_infoheader.compression), 1, DWORD, _fileptr);
+         fread(&(_infoheader.image_size), 1, DWORD, _fileptr);
+         fread(&(_infoheader.x_pixels_per_meter), 1, DWORD, _fileptr);
+         fread(&(_infoheader.y_pixels_per_meter), 1, DWORD, _fileptr);
+         fread(&(_infoheader.colors_used), 1, DWORD, _fileptr);
+         fread(&(_infoheader.important_colors), 1, DWORD, _fileptr);
+     }
 
  public:
-     // Constructor for C-string filename
-    explicit BitmapParser(const char *filename) {
-        fileptr_ = nullptr;
-        import(filename);
+    // Default constructor
+    BitmapParser()
+        : _fileptr(nullptr), _header(Header()),
+        _infoheader(InfoHeader()),
+        _pixels(std::vector<std::vector<Pixel> >()) {}
+
+    // Overloaded ctor for C-string filename
+    explicit BitmapParser(const char *filename)
+        : _fileptr(nullptr), _header(Header()),
+        _infoheader(InfoHeader()),
+        _pixels(std::vector<std::vector<Pixel> >()) {
+            import(filename);
     }
+
     // Overloaded ctor for C++ string filename
-    explicit BitmapParser(const std::string& filename) {
-        fileptr_ = nullptr;
-        import(filename.c_str());
+    explicit BitmapParser(const std::string& filename)
+        : _fileptr(nullptr), _header(Header()),
+        _infoheader(InfoHeader()),
+        _pixels(std::vector<std::vector<Pixel> >()) {
+            import(filename.c_str());
     }
 
-    Header* get_header() {
-        return &header_;
+    // Accessor for header struct
+    const Header& read_header() const {
+        return _header;
     }
 
-    InfoHeader* get_infoheader() {
-        return &infoheader_;
+    // Mutator for header struct as reference
+    Header& header() {
+        return _header;
     }
 
-    std::vector<std::vector<unsigned char> >& get_pixels() {
-        return pixels_;
+    // Mutator for replacing header struct
+    void replace_header(const Header& new_header) {
+        // Shallow copy is fine, no pointers
+        _header = new_header;
     }
 
+    // Accessor for info header struct
+    const InfoHeader& read_infoheader() const {
+        return _infoheader;
+    }
+
+    // Mutator for info header struct as reference
+    InfoHeader& infoheader() {
+        return _infoheader;
+    }
+
+    // Mutator for replacing infoheader struct
+    void replace_infoheader(const InfoHeader& new_infoheader) {
+        // Shallow copy is fine, no pointers
+        _infoheader = new_infoheader;
+    }
+
+    // Accessor for pixels
+    const std::vector<std::vector<Pixel> >& read_pixels() const {
+        return _pixels;
+    }
+
+    // Mutator for pixels vector as reference
+    std::vector<std::vector<Pixel> >& pixels() {
+        return _pixels;
+    }
+
+    // Mutator for replacing pixels vector
+    void replace_pixels(const std::vector<std::vector<Pixel> >& new_pixels) {
+        // Shallow copy is fine, no pointers
+        _pixels = new_pixels;
+    }
+
+    // Reads and parses a bitmap file
     void import(const char *filename) {
-        // Open and check for success.
-        fileptr_ = fopen(filename, "rb");
-        if (fileptr_ == nullptr) throw FileOpenException();
-        // Read the header.
-        fread(header_.signature, 1, TWO, fileptr_);
-        fread(header_.filesize, 1, FOUR, fileptr_);
-        fread(header_.reserved, 1, FOUR, fileptr_);
-        fread(header_.dataoffset, 1, FOUR, fileptr_);
-        // Read the info header.
-        fread(infoheader_.size, 1, FOUR, fileptr_);
-        fread(infoheader_.width, 1, FOUR, fileptr_);
-        fread(infoheader_.height, 1, FOUR, fileptr_);
-        fread(infoheader_.planes, 1, TWO, fileptr_);
-        fread(infoheader_.bits_per_pixel, 1, TWO, fileptr_);
-        fread(infoheader_.compression, 1, FOUR, fileptr_);
-        fread(infoheader_.image_size, 1, FOUR, fileptr_);
-        fread(infoheader_.xpixelsperm, 1, FOUR, fileptr_);
-        fread(infoheader_.ypixelsperm, 1, FOUR, fileptr_);
-        fread(infoheader_.colors_used, 1, FOUR, fileptr_);
-        fread(infoheader_.important_colors, 1, FOUR, fileptr_);
-        // Check the signature for "BM" in ASCII hexadecimal.
-        if (to_hex_str(header_.signature, TWO) != "424d") {
-            throw InvalidFormatException();
-        }
-        print_metadata();
-        print_metadata_hex();
+        /*
+        Open and check for success.
+        FYI - Visual Studio debugger requires absolute path.
+        */
+        _fileptr = fopen(filename, "rb");
+        if (_fileptr == nullptr) throw FileOpenException();
+        // Import the header and info header.
+        import_header();
+        import_infoheader();
+        /*
+        After the 14-byte header and 40-byte info header,
+        there is some padding of (3 bytes per pixel) * (width) zero bytes
+        The pixel data begins immediately afterwards.
+        Skip the padding by advancing the file pointer.
+        */
+        fseek(_fileptr, (3 * _infoheader.width), SEEK_CUR);
+
+        // Sanity check - seems to work.
+        // TODO continue parsing pixels. Watch for padding.
+        uint8_t firstpixel[3];
+        fread(firstpixel, 1, 3, _fileptr);
+        
+        print_metadata(false);
+        print_metadata(true);
     }
 
-    std::string to_hex_str(const unsigned char *ptr, const size_t size) {
-        size_t increments = 0;
-        std::stringstream stream;
-        while (increments < size) {
-            stream << std::setfill('0') << std::setw(2) <<
-                std::hex << static_cast<int>(*ptr);
-            ++ptr;
-            ++increments;
+    // Prints information about the header and info header.
+    void print_metadata(bool hex) const {
+        // For displaying text dividers
+        const std::string div = "========================================";
+        if (hex) {
+            std::cout << "Number base: hexadecimal\n\n";
+        } else {
+            std::cout << "Number base: decimal\n\n";
         }
-        return stream.str();
-    }
-
-    void print_metadata() {
-        std::cout << "HEADER\n" <<
-            "\nSignature: 0x" <<
-            to_hex_str(header_.signature, TWO) <<
-            "\nFile Size (Bytes): " <<
-            *reinterpret_cast<int*>(header_.filesize) <<
+        std::cout << "HEADER\n" << div <<
+            "\nSignature (hexadecimal): 0x" <<
+            std::hex << _header.signature;
+        // Determine hex or decimal
+        if (!hex) std::cout << std::dec;
+        std::cout << "\nFile Size (Bytes): " <<
+            _header.file_size <<
             "\nReserved Flags: " <<
-            *reinterpret_cast<int*>(header_.reserved) <<
+            _header.reserved <<
             "\nData Offset (Bytes): " <<
-            *reinterpret_cast<int*>(header_.dataoffset) <<
-            "\n\nINFO HEADER\n" <<
+            _header.data_offset <<
+            "\n\nINFO HEADER\n" << div <<
             "\nInfo Header Size (Bytes): " <<
-            *reinterpret_cast<int*>(infoheader_.size) <<
+            _infoheader.size <<
             "\nImage Width (Pixels): " <<
-            *reinterpret_cast<int*>(infoheader_.width) <<
+            _infoheader.width <<
             "\nImage Height (Pixels): " <<
-            *reinterpret_cast<int*>(infoheader_.height) <<
+            _infoheader.height <<
             "\nPlanes: " <<
-            *reinterpret_cast<int16_t*>(infoheader_.planes) <<
+            _infoheader.planes <<
             "\nBits Per Pixel: " <<
-            *reinterpret_cast<int16_t*>(infoheader_.bits_per_pixel) <<
+            _infoheader.bits_per_pixel <<
             "\nCompression Type: " <<
-            *reinterpret_cast<int*>(infoheader_.compression) <<
+            _infoheader.compression <<
             "\nCompressed Image Size (Bytes): " <<
-            *reinterpret_cast<int*>(infoheader_.image_size) <<
+            _infoheader.image_size <<
             "\nHorizontal Resolution (Pixels/Meter): " <<
-            *reinterpret_cast<int*>(infoheader_.xpixelsperm) <<
+            _infoheader.x_pixels_per_meter <<
             "\nVertical Resolution (Pixels/Meter): " <<
-            *reinterpret_cast<int*>(infoheader_.ypixelsperm) <<
+            _infoheader.y_pixels_per_meter <<
             "\nNumber of Actually Used Colors: " <<
-            *reinterpret_cast<int*>(infoheader_.colors_used) <<
+            _infoheader.colors_used <<
             "\nNumber of Important Colors: " <<
-            *reinterpret_cast<int*>(infoheader_.important_colors) << "\n\n";
-    }
-
-    void print_metadata_hex() {
-        std::cout << "CAUTION - ON x86 SYSTEMS, \n" <<
-            "EVERYTHING EXCEPT THE SIGNATURE IS LITTLE ENDIAN!\n\n" <<
-            "HEADER\n" <<
-            "\nSignature: 0x" <<
-            to_hex_str(header_.signature, TWO) <<
-            "\nFile Size (Bytes): 0x" <<
-            to_hex_str(header_.filesize, FOUR) <<
-            "\nReserved Flags: 0x" <<
-            to_hex_str(header_.reserved, FOUR) <<
-            "\nData Offset (Bytes): 0x" <<
-            to_hex_str(header_.dataoffset, FOUR) <<
-            "\n\nINFO HEADER\n" <<
-            "\nInfo Header Size (Bytes): 0x" <<
-            to_hex_str(infoheader_.size, FOUR) <<
-            "\nImage Width (Pixels): 0x" <<
-            to_hex_str(infoheader_.width, FOUR) <<
-            "\nImage Height (Pixels): 0x" <<
-            to_hex_str(infoheader_.height, FOUR) <<
-            "\nPlanes: 0x" <<
-            to_hex_str(infoheader_.planes, TWO) <<
-            "\nBits Per Pixel: 0x" <<
-            to_hex_str(infoheader_.bits_per_pixel, TWO) <<
-            "\nCompression Type: 0x" <<
-            to_hex_str(infoheader_.compression, FOUR) <<
-            "\nCompressed Image Size (Bytes): 0x" <<
-            to_hex_str(infoheader_.image_size, FOUR) <<
-            "\nHorizontal Resolution (Pixels/Meter): 0x" <<
-            to_hex_str(infoheader_.xpixelsperm, FOUR) <<
-            "\nVertical Resolution (Pixels/Meter): 0x" <<
-            to_hex_str(infoheader_.ypixelsperm, FOUR) <<
-            "\nNumber of Actually Used Colors: 0x" <<
-            to_hex_str(infoheader_.colors_used, FOUR) <<
-            "\nNumber of Important Colors: 0x" <<
-            to_hex_str(infoheader_.important_colors, FOUR) << "\n\n";
+            _infoheader.important_colors << "\n\n";
     }
 };
-#endif  // SRC_BITMAPPARSER_H_
+#endif  // BITMAPPARSER_H_
