@@ -138,6 +138,17 @@ class BitmapParser {
          fread(&(_infoheader.important_colors), 1, DWORD, _fileptr);
      }
 
+     // Helper method for calculating the row padding.
+     size_t row_padding() {
+         // Each row must be a multiple of 4 bytes
+         size_t remainder = (_infoheader.width * 3) % 4;
+         if (remainder == 0) {
+             return 0;
+         } else {
+             return (4 - remainder);
+         }
+     }
+
  public:
     // Default constructor
     BitmapParser()
@@ -217,7 +228,7 @@ class BitmapParser {
         */
         _fileptr = fopen(filename, "rb");
         if (_fileptr == nullptr) throw FileOpenException();
-        // Import the header and info header.
+        // Import the header and info header via helpers.
         import_header();
         import_infoheader();
         /*
@@ -227,14 +238,27 @@ class BitmapParser {
         Skip the padding by advancing the file pointer.
         */
         fseek(_fileptr, (3 * _infoheader.width), SEEK_CUR);
-
-        // Sanity check - seems to work.
-        // TODO(Jason): continue parsing pixels. Watch for padding.
-        uint8_t firstpixel[3];
-        fread(firstpixel, 1, 3, _fileptr);
-
-        print_metadata(false);
-        print_metadata(true);
+        // Calculate row padding via helper.
+        size_t num_padding_bytes = row_padding();
+        // Create vectors of Pixels by height (# of rows)
+        _pixels.resize(_infoheader.height);
+        // Reserve in each row for future Pixel push_back
+        for (std::vector<Pixel> row : _pixels) {
+            row.reserve(_infoheader.width);
+        }
+        // Finally, read the pixels.
+        for (size_t row = 0; row < _infoheader.height; ++row) {
+            for (size_t col = 0; col < _infoheader.width; ++col) {
+                // Read R, G, B for each pixel
+                Pixel pix = {};
+                fread(&(pix.red), 1, 1, _fileptr);
+                fread(&(pix.green), 1, 1, _fileptr);
+                fread(&(pix.blue), 1, 1, _fileptr);
+                _pixels[row].push_back(pix);
+            }
+            // Skip the row padding before moving to the next row
+            fseek(_fileptr, num_padding_bytes, SEEK_CUR);
+        }
     }
 
     // Prints information about the header and info header.
@@ -280,6 +304,25 @@ class BitmapParser {
             _infoheader.colors_used <<
             "\nNumber of Important Colors: " <<
             _infoheader.important_colors << "\n\n";
+    }
+
+    /*
+    Prints information about the pixels vector.
+    Output may be long - recommended to pipe to file.
+    */
+    void print_pixels(bool hex) const {
+        for (size_t row = 0; row < _infoheader.height; ++row) {
+            for (size_t col = 0; col < _infoheader.width; ++col) {
+                std::cout << std::dec << "Row " << row <<
+                    ", Column " << col << "\n";
+                const Pixel& pix = _pixels[row][col];
+                if (hex) std::cout << std::hex;
+                // Cout can't print uint8_t without unsigned()
+                std::cout << "R: " << unsigned(pix.red) <<
+                    ", G: " << unsigned(pix.green) <<
+                    ", B: " << unsigned(pix.blue) << "\n\n";
+            }
+        }
     }
 };
 #endif  // BITMAPPARSER_H_
