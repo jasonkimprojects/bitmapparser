@@ -43,15 +43,11 @@ struct Header {
     uint32_t data_offset;
 };
 
-/*
-For organizing the 40-byte info header.
-Some bitmaps have negative height, where
-the pixels are stored upside down.
-*/
+// For organizing the 40-byte info header.
 struct InfoHeader {
     uint32_t size;
     uint32_t width;
-    int32_t height;
+    uint32_t height;
     uint16_t planes;
     uint16_t bits_per_pixel;
     uint32_t compression;
@@ -104,6 +100,7 @@ class BitmapParser {
      Header _header;
      InfoHeader _infoheader;
      std::vector<std::vector<Pixel> > _pixels;
+     size_t _padding;
 
      // Helper method for importing the header.
      void import_header() {
@@ -154,13 +151,15 @@ class BitmapParser {
     BitmapParser()
         : _fileptr(nullptr), _header(Header()),
         _infoheader(InfoHeader()),
-        _pixels(std::vector<std::vector<Pixel> >()) {}
+        _pixels(std::vector<std::vector<Pixel> >()),
+        _padding(0) {}
 
     // Overloaded ctor for C-string filename
     explicit BitmapParser(const char *filename)
         : _fileptr(nullptr), _header(Header()),
         _infoheader(InfoHeader()),
-        _pixels(std::vector<std::vector<Pixel> >()) {
+        _pixels(std::vector<std::vector<Pixel> >()),
+        _padding(0) {
             import(filename);
     }
 
@@ -168,7 +167,8 @@ class BitmapParser {
     explicit BitmapParser(const std::string& filename)
         : _fileptr(nullptr), _header(Header()),
         _infoheader(InfoHeader()),
-        _pixels(std::vector<std::vector<Pixel> >()) {
+        _pixels(std::vector<std::vector<Pixel> >()),
+        _padding(0) {
             import(filename.c_str());
     }
 
@@ -231,33 +231,32 @@ class BitmapParser {
         // Import the header and info header via helpers.
         import_header();
         import_infoheader();
-        /*
-        After the 14-byte header and 40-byte info header,
-        there is some padding of (3 bytes per pixel) * (width) zero bytes
-        The pixel data begins immediately afterwards.
-        Skip the padding by advancing the file pointer.
-        */
-        fseek(_fileptr, (3 * _infoheader.width), SEEK_CUR);
         // Calculate row padding via helper.
-        size_t num_padding_bytes = row_padding();
+        _padding = row_padding();
         // Create vectors of Pixels by height (# of rows)
         _pixels.resize(_infoheader.height);
         // Reserve in each row for future Pixel push_back
         for (std::vector<Pixel> row : _pixels) {
             row.reserve(_infoheader.width);
         }
-        // Finally, read the pixels.
-        for (size_t row = 0; row < _infoheader.height; ++row) {
+        /*
+        Finally, read the pixels bottom-up. The start of the file
+        after the header/info header contains the bottom left pixel.
+        Pixels are stored in blue, green, red order.
+        Using int for row due to complications with decrementing for loops
+        and unsigned values.
+        */
+        for (int row = _pixels.size() - 1; row >= 0; --row) {
             for (size_t col = 0; col < _infoheader.width; ++col) {
                 // Read R, G, B for each pixel
                 Pixel pix = {};
-                fread(&(pix.red), 1, 1, _fileptr);
-                fread(&(pix.green), 1, 1, _fileptr);
                 fread(&(pix.blue), 1, 1, _fileptr);
+                fread(&(pix.green), 1, 1, _fileptr);
+                fread(&(pix.red), 1, 1, _fileptr);
                 _pixels[row].push_back(pix);
             }
             // Skip the row padding before moving to the next row
-            fseek(_fileptr, num_padding_bytes, SEEK_CUR);
+            fseek(_fileptr, _padding, SEEK_CUR);
         }
     }
 
@@ -307,21 +306,29 @@ class BitmapParser {
     }
 
     /*
-    Prints information about the pixels vector.
+    Prints information about pixels, by row. Lists padding as well.
     Output may be long - recommended to pipe to file.
     */
     void print_pixels(bool hex) const {
+        if (hex) {
+            std::cout << "Number base: hexadecimal\n\n";
+        } else {
+            std::cout << "Number base: decimal\n\n";
+        }
         for (size_t row = 0; row < _infoheader.height; ++row) {
+            std::cout << std::dec << "Row " << row << " (R/G/B)" <<
+                "\n==============================\n";
             for (size_t col = 0; col < _infoheader.width; ++col) {
-                std::cout << std::dec << "Row " << row <<
-                    ", Column " << col << "\n";
                 const Pixel& pix = _pixels[row][col];
+                std::cout << std::dec << "Col " << col << ":\t\t";
                 if (hex) std::cout << std::hex;
                 // Cout can't print uint8_t without unsigned()
-                std::cout << "R: " << unsigned(pix.red) <<
-                    ", G: " << unsigned(pix.green) <<
-                    ", B: " << unsigned(pix.blue) << "\n\n";
+                std::cout << unsigned(pix.red) << ' ' <<
+                    unsigned(pix.green) << ' ' <<
+                    unsigned(pix.blue) << '\n';
             }
+            // Padding is 0-3 bytes, same notation in decimal and hex.
+            std::cout << "Padding Bytes: " << _padding << "\n\n";
         }
     }
 };

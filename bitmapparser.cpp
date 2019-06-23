@@ -20,5 +20,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     BitmapParser test(argv[1]);
+    test.print_metadata(false);
+    test.print_pixels(false);
     return 0;
 }
