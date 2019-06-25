@@ -6,11 +6,8 @@ A simple library to read, write, and edit bitmap images.
 Written as a side project to study file processing, and for fun.
 This library will only make basic and absolutely needed checks
 and exceptions on user behavior, and trusts the user otherwise.
-A consequence is that broken bitmap images are possible if,
-for example, a pixels vector of different dimension is replaced
-without changing data in the header and info header.
 
-At the time, only 24-bit color (RGB, 0-255) is supported.
+At the time, only 24-bit color (RGB, 0-255) without compression is supported.
 
 The style confroms to Google's coding style guide for C++,
 and has been checked with cpplint.
@@ -68,21 +65,31 @@ struct Pixel {
 // Custom exception for when the bitmap signature is wrong.
 class InvalidFormatException : public std::exception {
     const char* what() const throw() override {
-        return "Invalid file format, not a bitmap image!";
-    }
-};
-
-// Custom exception for when the color scheme is not 24-bit.
-class UnsupportedException : public std::exception {
-    const char* what() const throw() override {
-        return "Only 24-bit RGB is supported at this time.";
+        // Workaround for 80 char column limit
+        std::string msg = "Invalid or incompatible file.\n";
+        msg += "Only 24-bit uncompressed files are supported.\n";
+        return msg.c_str();
     }
 };
 
 // Custom exception when file fails to open.
 class FileOpenException : public std::exception {
     const char* what() const throw() override {
-        return "Failed to open file!";
+        return "Failed to open file!\n";
+    }
+};
+
+// Custom exception for unexpected end-of-file.
+class EOFException : public std::exception {
+    const char* what() const throw() override {
+        return "Unexpectedly reached end of file!\n";
+    }
+};
+
+// Custom exception for errors in file I/O.
+class IOException : public std::exception {
+    const char* what() const throw() override {
+        return "Error reading file!\n";
     }
 };
 
@@ -102,6 +109,15 @@ class BitmapParser {
      std::vector<std::vector<Pixel> > _pixels;
      size_t _padding;
 
+     /*
+     Helper method for reading and checking file I/O.
+     */
+     void check_read(void* buffer, size_t size, size_t count, FILE* stream) {
+         size_t val = fread(buffer, size, count, stream);
+         if (feof(_fileptr)) throw EOFException();
+         if ((val != count) || ferror(_fileptr)) throw IOException();
+     }
+
      // Helper method for importing the header.
      void import_header() {
          /*
@@ -111,28 +127,28 @@ class BitmapParser {
            All other fields are little endian.
            */
          uint8_t word_buf[WORD];
-         fread(word_buf, 1, WORD, _fileptr);
+         check_read(word_buf, 1, WORD, _fileptr);
          _header.signature = static_cast<uint16_t>(word_buf[1]) |
              (static_cast<uint16_t>(word_buf[0]) << 8);
-         fread(&(_header.file_size), 1, DWORD, _fileptr);
-         fread(&(_header.reserved), 1, DWORD, _fileptr);
-         fread(&(_header.data_offset), 1, DWORD, _fileptr);
+         check_read(&(_header.file_size), 1, DWORD, _fileptr);
+         check_read(&(_header.reserved), 1, DWORD, _fileptr);
+         check_read(&(_header.data_offset), 1, DWORD, _fileptr);
      }
 
      // Helper method for importing the info header.
      void import_infoheader() {
          // Only planes and bits per pixel are words.
-         fread(&(_infoheader.size), 1, DWORD, _fileptr);
-         fread(&(_infoheader.width), 1, DWORD, _fileptr);
-         fread(&(_infoheader.height), 1, DWORD, _fileptr);
-         fread(&(_infoheader.planes), 1, WORD, _fileptr);
-         fread(&(_infoheader.bits_per_pixel), 1, WORD, _fileptr);
-         fread(&(_infoheader.compression), 1, DWORD, _fileptr);
-         fread(&(_infoheader.image_size), 1, DWORD, _fileptr);
-         fread(&(_infoheader.x_pixels_per_meter), 1, DWORD, _fileptr);
-         fread(&(_infoheader.y_pixels_per_meter), 1, DWORD, _fileptr);
-         fread(&(_infoheader.colors_used), 1, DWORD, _fileptr);
-         fread(&(_infoheader.important_colors), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.size), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.width), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.height), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.planes), 1, WORD, _fileptr);
+         check_read(&(_infoheader.bits_per_pixel), 1, WORD, _fileptr);
+         check_read(&(_infoheader.compression), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.image_size), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.x_pixels_per_meter), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.y_pixels_per_meter), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.colors_used), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.important_colors), 1, DWORD, _fileptr);
      }
 
      // Helper method for calculating the row padding.
@@ -144,6 +160,34 @@ class BitmapParser {
          } else {
              return (4 - remainder);
          }
+     }
+
+     /*
+     Helper method for checking file correctness and compatibility.
+     Returns true if correct and compatible, false otherwise.
+     Not checking image size with relation to width, height, and padding
+     since some images have zero bytes appended to them,
+     especially ones converted and edited through Photoshop.
+     */
+     bool compatible() {
+         // Check image signature for "BM"
+         if (_header.signature != 0x424d) return false;
+         // Check for data offset - no palette
+         if (_header.data_offset != 0x36) return false;
+         // Check for info header size
+         if (_infoheader.size != 0x28) return false;
+         // Check for # of image planes
+         if (_infoheader.planes != 1) return false;
+         // Check for compression
+         if (_infoheader.compression != 0) return false;
+         // Check for 24 bits per pixel
+         if (_infoheader.bits_per_pixel != 0x18) return false;
+         // Check number of colors in palette
+         if (_infoheader.colors_used != 0) return false;
+         // Check number of important colors
+         if (_infoheader.important_colors != 0) return false;
+         // All checks passed.
+         return true;
      }
 
  public:
@@ -233,6 +277,8 @@ class BitmapParser {
         import_infoheader();
         // Calculate row padding via helper.
         _padding = row_padding();
+        // Check correctness and compatibility of the image.
+        if (!compatible()) throw InvalidFormatException();
         // Create vectors of Pixels by height (# of rows)
         _pixels.resize(_infoheader.height);
         // Reserve in each row for future Pixel push_back
@@ -250,14 +296,16 @@ class BitmapParser {
             for (size_t col = 0; col < _infoheader.width; ++col) {
                 // Read R, G, B for each pixel
                 Pixel pix = {};
-                fread(&(pix.blue), 1, 1, _fileptr);
-                fread(&(pix.green), 1, 1, _fileptr);
-                fread(&(pix.red), 1, 1, _fileptr);
+                check_read(&(pix.blue), 1, 1, _fileptr);
+                check_read(&(pix.green), 1, 1, _fileptr);
+                check_read(&(pix.red), 1, 1, _fileptr);
                 _pixels[row].push_back(pix);
             }
             // Skip the row padding before moving to the next row
             fseek(_fileptr, _padding, SEEK_CUR);
         }
+        // Close the file
+        fclose(_fileptr);
     }
 
     // Prints information about the header and info header.
