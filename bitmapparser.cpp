@@ -24,6 +24,10 @@ int main(int argc, char* argv[]) {
     //test.print_metadata(true);
     //test.print_pixels(false);
     //test.print_pixels(true);
+    //test.invert_colors();
+    //test.flip_horizontal();
+    //test.flip_vertical();
+    test.grayscale();
     test.save(argv[2]);
     return 0;
 }

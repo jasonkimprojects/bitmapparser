@@ -31,6 +31,9 @@ June 13, 2019
 #include <string>
 // For custom exceptions.
 #include <exception>
+// For STL algorithms.
+#include <algorithm>
+#include <utility>
 
 // For organizing the 14-byte header.
 struct Header {
@@ -333,7 +336,7 @@ class BitmapParser {
         // Create vectors of Pixels by height (# of rows).
         _pixels.resize(_infoheader.height);
         // Reserve in each row for future Pixel push_back.
-        for (std::vector<Pixel> row : _pixels) {
+        for (std::vector<Pixel>& row : _pixels) {
             row.reserve(_infoheader.width);
         }
         /*
@@ -463,6 +466,57 @@ class BitmapParser {
             }
             // Padding is 0-3 bytes, same notation in decimal and hex.
             std::cout << "Padding Bytes: " << _padding << "\n\n";
+        }
+    }
+
+    // Inverts the colors of the image.
+    void invert_colors() {
+        const uint8_t color_max = 0xff;
+        for (std::vector<Pixel>& row : _pixels) {
+            for (Pixel& pix : row) {
+                pix.red = color_max - pix.red;
+                pix.green = color_max - pix.green;
+                pix.blue = color_max - pix.blue;
+            }
+        }
+    }
+
+    // Flips the image horizontally.
+    void flip_horizontal() {
+        for (std::vector<Pixel>& row : _pixels) {
+            std::reverse(row.begin(), row.end());
+        }
+    }
+
+    // Flips the image vertically.
+    void flip_vertical() {
+        /*
+        Unable to use std::reverse here due to the
+        pixels in one column being in different vectors.
+        */
+        for (size_t col = 0; col < _pixels[0].size(); ++col) {
+            size_t start_idx = 0;
+            size_t end_idx = _pixels.size() - 1;
+            while (start_idx < end_idx) {
+                std::swap(_pixels[start_idx][col], _pixels[end_idx][col]);
+                ++start_idx;
+                --end_idx;
+            }
+        }
+    }
+
+    // Turns the image into grayscale using the average method.
+    void grayscale() {
+        for (std::vector<Pixel>& row : _pixels) {
+            for (Pixel& pix : row) {
+                // Average algorithm without overflow.
+                const uint8_t avg = (pix.red / 3) + (pix.green / 3) +
+                    (pix.blue / 3) + (((pix.red % 3) + (pix.green % 3) +
+                    (pix.blue % 3)) / 3);
+                pix.red = avg;
+                pix.green = avg;
+                pix.blue = avg;
+            }
         }
     }
 };
