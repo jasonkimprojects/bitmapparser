@@ -15,14 +15,15 @@ June 13, 2019
 #include "src/bitmapparser.h"
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
+    if (argc != 3) {
         std::cout << "Specify a filename!\n";
         return 1;
     }
     BitmapParser test(argv[1]);
-    test.print_metadata(false);
-    test.print_metadata(true);
-    test.print_pixels(false);
-    test.print_pixels(true);
+    //test.print_metadata(false);
+    //test.print_metadata(true);
+    //test.print_pixels(false);
+    //test.print_pixels(true);
+    test.save(argv[2]);
     return 0;
 }

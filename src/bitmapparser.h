@@ -19,7 +19,7 @@ June 13, 2019
 #ifndef BITMAPPARSER_H_
 #define BITMAPPARSER_H_
 
-// For printing
+// For printing.
 #include <iostream>
 #include <iomanip>
 // For file input and output.
@@ -65,7 +65,7 @@ struct Pixel {
 // Custom exception for when the bitmap signature is wrong.
 class InvalidFormatException : public std::exception {
     const char* what() const throw() override {
-        // Workaround for 80 char column limit
+        // Workaround for 80 char column limit.
         std::string msg = "Invalid or incompatible file.\n";
         msg += "Only 24-bit uncompressed files are supported.\n";
         return msg.c_str();
@@ -89,13 +89,14 @@ class EOFException : public std::exception {
 // Custom exception for errors in file I/O.
 class IOException : public std::exception {
     const char* what() const throw() override {
-        return "Error reading file!\n";
+        return "Error reading or writing file!\n";
     }
 };
 
 class BitmapParser {
  private:
-     // Constants for word/dword size in bytes
+     // Constants for word/dword size in bytes.
+     static const size_t BYTE = 1;
      static const size_t WORD = 2;
      static const size_t DWORD = 4;
 
@@ -110,12 +111,24 @@ class BitmapParser {
      size_t _padding;
 
      /*
-     Helper method for reading and checking file I/O.
+     Wrapper for reading and checking fread.
+     No need to check return value of fread, since feof/ferror
+     flags are set automatically.
      */
      void check_read(void* buffer, size_t size, size_t count, FILE* stream) {
-         size_t val = fread(buffer, size, count, stream);
-         if (feof(_fileptr)) throw EOFException();
-         if ((val != count) || ferror(_fileptr)) throw IOException();
+         fread(buffer, size, count, stream);
+         if (feof(stream)) throw EOFException();
+         if (ferror(stream)) throw IOException();
+     }
+
+     /*
+     Wrapper for writing and checking fwrite.
+     No need to check return value of fwrite, since the ferror
+     flag is set automatically.
+     */
+     void check_write(void* buffer, size_t size, size_t count, FILE* stream) {
+         fwrite(buffer, size, count, stream);
+         if (ferror(stream)) throw IOException();
      }
 
      // Helper method for importing the header.
@@ -125,35 +138,72 @@ class BitmapParser {
            A buffer is needed to switch the endianness
            for the signature only, so it reads 42 4D not 4D 42.
            All other fields are little endian.
+           Although the C standard mandates that the size of a char
+           be 1 byte, using sizeof(char) here for readability.
+           Compiler will replace with 1 -- no runtime performance loss.
            */
          uint8_t word_buf[WORD];
-         check_read(word_buf, 1, WORD, _fileptr);
+         check_read(word_buf, sizeof(char), WORD, _fileptr);
          _header.signature = static_cast<uint16_t>(word_buf[1]) |
              (static_cast<uint16_t>(word_buf[0]) << 8);
-         check_read(&(_header.file_size), 1, DWORD, _fileptr);
-         check_read(&(_header.reserved), 1, DWORD, _fileptr);
-         check_read(&(_header.data_offset), 1, DWORD, _fileptr);
+         check_read(&(_header.file_size), sizeof(char), DWORD, _fileptr);
+         check_read(&(_header.reserved), sizeof(char), DWORD, _fileptr);
+         check_read(&(_header.data_offset), sizeof(char), DWORD, _fileptr);
+     }
+
+     // Helper method for writing the header.
+     void write_header() {
+         // No need for bit shifting since it is a write.
+         char signature[] = "BM";
+         check_write(signature, sizeof(char), WORD, _fileptr);
+         check_write(&(_header.file_size), sizeof(char), DWORD, _fileptr);
+         check_write(&(_header.reserved), sizeof(char), DWORD, _fileptr);
+         check_write(&(_header.data_offset), sizeof(char), DWORD, _fileptr);
      }
 
      // Helper method for importing the info header.
      void import_infoheader() {
          // Only planes and bits per pixel are words.
-         check_read(&(_infoheader.size), 1, DWORD, _fileptr);
-         check_read(&(_infoheader.width), 1, DWORD, _fileptr);
-         check_read(&(_infoheader.height), 1, DWORD, _fileptr);
-         check_read(&(_infoheader.planes), 1, WORD, _fileptr);
-         check_read(&(_infoheader.bits_per_pixel), 1, WORD, _fileptr);
-         check_read(&(_infoheader.compression), 1, DWORD, _fileptr);
-         check_read(&(_infoheader.image_size), 1, DWORD, _fileptr);
-         check_read(&(_infoheader.x_pixels_per_meter), 1, DWORD, _fileptr);
-         check_read(&(_infoheader.y_pixels_per_meter), 1, DWORD, _fileptr);
-         check_read(&(_infoheader.colors_used), 1, DWORD, _fileptr);
-         check_read(&(_infoheader.important_colors), 1, DWORD, _fileptr);
+         check_read(&(_infoheader.size), sizeof(char), DWORD, _fileptr);
+         check_read(&(_infoheader.width), sizeof(char), DWORD, _fileptr);
+         check_read(&(_infoheader.height), sizeof(char), DWORD, _fileptr);
+         check_read(&(_infoheader.planes), sizeof(char), WORD, _fileptr);
+         check_read(&(_infoheader.bits_per_pixel), sizeof(char),
+             WORD, _fileptr);
+         check_read(&(_infoheader.compression), sizeof(char), DWORD, _fileptr);
+         check_read(&(_infoheader.image_size), sizeof(char), DWORD, _fileptr);
+         check_read(&(_infoheader.x_pixels_per_meter), sizeof(char),
+             DWORD, _fileptr);
+         check_read(&(_infoheader.y_pixels_per_meter), sizeof(char),
+             DWORD, _fileptr);
+         check_read(&(_infoheader.colors_used), sizeof(char), DWORD, _fileptr);
+         check_read(&(_infoheader.important_colors), sizeof(char),
+             DWORD, _fileptr);
+     }
+
+     // Helper method for writing the info header.
+     void write_infoheader() {
+         // Only planes and bits per pixel are words.
+         check_write(&(_infoheader.size), sizeof(char), DWORD, _fileptr);
+         check_write(&(_infoheader.width), sizeof(char), DWORD, _fileptr);
+         check_write(&(_infoheader.height), sizeof(char), DWORD, _fileptr);
+         check_write(&(_infoheader.planes), sizeof(char), WORD, _fileptr);
+         check_write(&(_infoheader.bits_per_pixel), sizeof(char),
+             WORD, _fileptr);
+         check_write(&(_infoheader.compression), sizeof(char), DWORD, _fileptr);
+         check_write(&(_infoheader.image_size), sizeof(char), DWORD, _fileptr);
+         check_write(&(_infoheader.x_pixels_per_meter), sizeof(char),
+             DWORD, _fileptr);
+         check_write(&(_infoheader.y_pixels_per_meter), sizeof(char),
+             DWORD, _fileptr);
+         check_write(&(_infoheader.colors_used), sizeof(char), DWORD, _fileptr);
+         check_write(&(_infoheader.important_colors), sizeof(char),
+             DWORD, _fileptr);
      }
 
      // Helper method for calculating the row padding.
      size_t row_padding() {
-         // Each row must be a multiple of 4 bytes
+         // Each row must be a multiple of 4 bytes.
          size_t remainder = (_infoheader.width * 3) % 4;
          if (remainder == 0) {
              return 0;
@@ -168,37 +218,38 @@ class BitmapParser {
      Not checking image size with relation to width, height, and padding
      since some images have zero bytes appended to them,
      especially ones converted and edited through Photoshop.
+     (Adobe appends two 0x00 bytes.)
      */
      bool compatible() {
-         // Check image signature for "BM"
+         // Check image signature for "BM".
          if (_header.signature != 0x424d) return false;
-         // Check for data offset - no palette
+         // Check for data offset - no palette.
          if (_header.data_offset != 0x36) return false;
-         // Check for info header size
+         // Check for info header size.
          if (_infoheader.size != 0x28) return false;
-         // Check for # of image planes
+         // Check for # of image planes.
          if (_infoheader.planes != 1) return false;
-         // Check for compression
+         // Check for compression.
          if (_infoheader.compression != 0) return false;
-         // Check for 24 bits per pixel
+         // Check for 24 bits per pixel.
          if (_infoheader.bits_per_pixel != 0x18) return false;
-         // Check number of colors in palette
+         // Check number of colors in palette.
          if (_infoheader.colors_used != 0) return false;
-         // Check number of important colors
+         // Check number of important colors.
          if (_infoheader.important_colors != 0) return false;
          // All checks passed.
          return true;
      }
 
  public:
-    // Default constructor
+    // Default constructor.
     BitmapParser()
         : _fileptr(nullptr), _header(Header()),
         _infoheader(InfoHeader()),
         _pixels(std::vector<std::vector<Pixel> >()),
         _padding(0) {}
 
-    // Overloaded ctor for C-string filename
+    // Overloaded ctor for C-string filename.
     explicit BitmapParser(const char *filename)
         : _fileptr(nullptr), _header(Header()),
         _infoheader(InfoHeader()),
@@ -207,7 +258,7 @@ class BitmapParser {
             import(filename);
     }
 
-    // Overloaded ctor for C++ string filename
+    // Overloaded ctor for C++ string filename.
     explicit BitmapParser(const std::string& filename)
         : _fileptr(nullptr), _header(Header()),
         _infoheader(InfoHeader()),
@@ -216,55 +267,55 @@ class BitmapParser {
             import(filename.c_str());
     }
 
-    // Accessor for header struct
+    // Accessor for header struct.
     const Header& read_header() const {
         return _header;
     }
 
-    // Mutator for header struct as reference
+    // Mutator for header struct as reference.
     Header& header() {
         return _header;
     }
 
-    // Mutator for replacing header struct
+    // Mutator for replacing header struct.
     void replace_header(const Header& new_header) {
-        // Shallow copy is fine, no pointers
+        // Shallow copy is fine, no pointers.
         _header = new_header;
     }
 
-    // Accessor for info header struct
+    // Accessor for info header struct.
     const InfoHeader& read_infoheader() const {
         return _infoheader;
     }
 
-    // Mutator for info header struct as reference
+    // Mutator for info header struct as reference.
     InfoHeader& infoheader() {
         return _infoheader;
     }
 
-    // Mutator for replacing infoheader struct
+    // Mutator for replacing infoheader struct.
     void replace_infoheader(const InfoHeader& new_infoheader) {
-        // Shallow copy is fine, no pointers
+        // Shallow copy is fine, no pointers.
         _infoheader = new_infoheader;
     }
 
-    // Accessor for pixels
+    // Accessor for pixels.
     const std::vector<std::vector<Pixel> >& read_pixels() const {
         return _pixels;
     }
 
-    // Mutator for pixels vector as reference
+    // Mutator for pixels vector as reference.
     std::vector<std::vector<Pixel> >& pixels() {
         return _pixels;
     }
 
-    // Mutator for replacing pixels vector
+    // Mutator for replacing pixels vector.
     void replace_pixels(const std::vector<std::vector<Pixel> >& new_pixels) {
-        // Shallow copy is fine, no pointers
+        // Shallow copy is fine, no pointers.
         _pixels = new_pixels;
     }
 
-    // Reads and parses a bitmap file
+    // Reads and parses a bitmap file.
     void import(const char *filename) {
         /*
         Open and check for success.
@@ -279,9 +330,9 @@ class BitmapParser {
         _padding = row_padding();
         // Check correctness and compatibility of the image.
         if (!compatible()) throw InvalidFormatException();
-        // Create vectors of Pixels by height (# of rows)
+        // Create vectors of Pixels by height (# of rows).
         _pixels.resize(_infoheader.height);
-        // Reserve in each row for future Pixel push_back
+        // Reserve in each row for future Pixel push_back.
         for (std::vector<Pixel> row : _pixels) {
             row.reserve(_infoheader.width);
         }
@@ -294,23 +345,58 @@ class BitmapParser {
         */
         for (int row = _pixels.size() - 1; row >= 0; --row) {
             for (size_t col = 0; col < _infoheader.width; ++col) {
-                // Read R, G, B for each pixel
+                // Read R, G, B for each pixel.
                 Pixel pix = {};
-                check_read(&(pix.blue), 1, 1, _fileptr);
-                check_read(&(pix.green), 1, 1, _fileptr);
-                check_read(&(pix.red), 1, 1, _fileptr);
+                check_read(&(pix.blue), sizeof(char), BYTE, _fileptr);
+                check_read(&(pix.green), sizeof(char), BYTE, _fileptr);
+                check_read(&(pix.red), sizeof(char), BYTE, _fileptr);
                 _pixels[row].push_back(pix);
             }
-            // Skip the row padding before moving to the next row
+            // Skip the row padding before moving to the next row.
             fseek(_fileptr, _padding, SEEK_CUR);
         }
-        // Close the file
+        // Close the file.
+        fclose(_fileptr);
+    }
+
+    // Writes a bitmap file.
+    void save(const char* filename) {
+        // Filler zero byte for padding.
+        uint8_t padding_byte = 0x0;
+        /*
+         Open and check for success.
+         FYI - Visual Studio debugger requires absolute path.
+         */
+        _fileptr = fopen(filename, "wb");
+        if (_fileptr == nullptr) throw FileOpenException();
+        // Write the header and info header via helpers.
+        write_header();
+        write_infoheader();
+        /*
+        Finally, write the pixels bottom-up. The start of the file
+        after the header/info header should contain the bottom left pixel.
+        Pixels must be written in blue, green, red order.
+        Using int for row due to complications with decrementing for loops
+        and unsigned values.
+        */
+        for (int row = _pixels.size() - 1; row >= 0; --row) {
+            for (size_t col = 0; col < _infoheader.width; ++col) {
+                // Write R, G, B for each pixel.
+                Pixel& pix = _pixels[row][col];
+                check_write(&(pix.blue), sizeof(char), BYTE, _fileptr);
+                check_write(&(pix.green), sizeof(char), BYTE, _fileptr);
+                check_write(&(pix.red), sizeof(char), BYTE, _fileptr);
+            }
+            // Write row padding before moving to the next row.
+            check_write(&(padding_byte), sizeof(char), _padding, _fileptr);
+        }
+        // Close the file.
         fclose(_fileptr);
     }
 
     // Prints information about the header and info header.
     void print_metadata(bool hex) const {
-        // For displaying text dividers
+        // For displaying text dividers.
         const std::string div = "========================================";
         if (hex) {
             std::cout << "Number base: hexadecimal\n\n";
@@ -320,7 +406,7 @@ class BitmapParser {
         std::cout << "HEADER\n" << div <<
             "\nSignature (hexadecimal): 0x" <<
             std::hex << _header.signature;
-        // Determine hex or decimal
+        // Determine hex or decimal.
         if (!hex) std::cout << std::dec;
         std::cout << "\nFile Size (Bytes): " <<
             _header.file_size <<
@@ -370,7 +456,7 @@ class BitmapParser {
                 const Pixel& pix = _pixels[row][col];
                 std::cout << std::dec << "Col " << col << ":\t\t";
                 if (hex) std::cout << std::hex;
-                // Cout can't print uint8_t without unsigned()
+                // Cout can't print uint8_t without unsigned().
                 std::cout << unsigned(pix.red) << ' ' <<
                     unsigned(pix.green) << ' ' <<
                     unsigned(pix.blue) << '\n';
