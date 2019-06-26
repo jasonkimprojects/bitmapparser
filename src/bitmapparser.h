@@ -607,36 +607,17 @@ class BitmapParser {
         // Sanity checks passed, begin cropping.
         const size_t new_width = x_end - x_begin;
         const size_t new_height = y_end - y_begin;
-        // Vector's range ctor doesn't like in-place cropping
-        std::vector<std::vector<Pixel> > new_pixels(new_height,
-            std::vector<Pixel>(new_width));
-        // Indices for the new pixels vector.
-        size_t row_idx = 0;
-        size_t col_idx = 0;
-        /*
-        Outer loop iterator traverses the vector of vectors of Pixels;
-        inner loop iterator traverses a vector of Pixels.
-        */
-        std::vector<std::vector<Pixel> >::iterator row_it;
-        std::vector<Pixel>::iterator col_it;
-        for (row_it = _pixels.begin() + y_begin;
-            row_it < _pixels.begin() + y_begin + new_height;
-            ++row_it) {
-                for (col_it = row_it->begin() + x_begin;
-                    col_it < row_it->begin() + x_begin + new_width;
-                    ++col_it) {
-                        new_pixels[row_idx][col_idx] = *col_it;
-                        ++col_idx;
-                }
-                ++row_idx;
-                col_idx = 0;
+        // In-place cropping using vector's range constructor.
+        _pixels = std::vector<std::vector<Pixel> >(_pixels.begin() + y_begin,
+            _pixels.begin() + y_begin + new_height);
+        for (std::vector<Pixel>& row : _pixels) {
+            row = std::vector<Pixel>(row.begin() + x_begin,
+                row.begin() + x_begin + new_width);
         }
-        // Replace the Pixels vector.
-        _pixels = new_pixels;
         // Change width and height
         _infoheader.width = new_width;
         _infoheader.height = new_height;
-        // Replace the padding
+        // Replace the padding, now that width is changed
         _padding = row_padding();
         // Calculate and change file size
         _header.file_size = calculate_size();
