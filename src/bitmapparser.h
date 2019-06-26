@@ -4,10 +4,8 @@ bitmapparser.h
 
 A simple library to read, write, and edit bitmap images. 
 Written as a side project to study file processing, and for fun.
-This library will only make basic and absolutely needed checks
-and exceptions on user behavior, and trusts the user otherwise.
 
-At the time, only 24-bit color (RGB, 0-255) without compression is supported.
+Only 24-bit color (RGB, 0-255) without compression is supported.
 
 The style confroms to Google's coding style guide for C++,
 and has been checked with cpplint.
@@ -21,16 +19,12 @@ June 13, 2019
 
 // For printing.
 #include <iostream>
-#include <iomanip>
-// For file input and output.
-#include <fstream>
-#include <sstream>
 // For storing bitmap information.
 #include <vector>
 // Explicit include for compatibility.
 #include <string>
-// For custom exceptions.
-#include <exception>
+// For exceptions and error handling.
+#include <stdexcept>
 // For STL algorithms.
 #include <algorithm>
 #include <utility>
@@ -98,6 +92,17 @@ class IOException : public std::exception {
 
 class BitmapParser {
  private:
+     // Constants for correct images.
+     static const size_t CORRECT_SIG = 0x424d;
+     static const size_t CORRECT_TOTAL_HEADER_SIZE = 0x36;
+     static const size_t CORRECT_INFOHEADER_SIZE = 0x28;
+     static const size_t CORRECT_BITS_PER_PIXEL = 0x18;
+     static const size_t CORRECT_BYTES_PER_PIXEL = 3;
+     static const size_t CORRECT_PLANES = 1;
+     static const size_t CORRECT_COMPRESSION = 0;
+     static const size_t CORRECT_COLORS_USED = 0;
+     static const size_t CORRECT_IMPORTANT_COLORS = 0;
+
      // Constants for word/dword size in bytes.
      static const size_t BYTE = 1;
      static const size_t WORD = 2;
@@ -121,7 +126,7 @@ class BitmapParser {
      void check_read(void* buffer, size_t size, size_t count, FILE* stream) {
          fread(buffer, size, count, stream);
          if (feof(stream)) throw EOFException();
-         if (ferror(stream)) throw IOException();
+         else if (ferror(stream)) throw IOException();
      }
 
      /*
@@ -156,7 +161,10 @@ class BitmapParser {
 
      // Helper method for writing the header.
      void write_header() {
-         // No need for bit shifting since it is a write.
+         /*
+         No need for bit shifting since it is a write,
+         but a char[] is needed for correct endianness.
+         */
          char signature[] = "BM";
          check_write(signature, sizeof(char), WORD, _fileptr);
          check_write(&(_header.file_size), sizeof(char), DWORD, _fileptr);
@@ -204,17 +212,6 @@ class BitmapParser {
              DWORD, _fileptr);
      }
 
-     // Helper method for calculating the row padding.
-     size_t row_padding() {
-         // Each row must be a multiple of 4 bytes.
-         size_t remainder = (_infoheader.width * 3) % 4;
-         if (remainder == 0) {
-             return 0;
-         } else {
-             return (4 - remainder);
-         }
-     }
-
      /*
      Helper method for checking file correctness and compatibility.
      Returns true if correct and compatible, false otherwise.
@@ -223,25 +220,29 @@ class BitmapParser {
      especially ones converted and edited through Photoshop.
      (Adobe appends two 0x00 bytes.)
      */
-     bool compatible() {
+     bool compatible() const {
          // Check image signature for "BM".
-         if (_header.signature != 0x424d) return false;
+         if (_header.signature != CORRECT_SIG) return false;
          // Check for data offset - no palette.
-         if (_header.data_offset != 0x36) return false;
+         else if (_header.data_offset !=
+             CORRECT_TOTAL_HEADER_SIZE) return false;
          // Check for info header size.
-         if (_infoheader.size != 0x28) return false;
+         else if (_infoheader.size != CORRECT_INFOHEADER_SIZE) return false;
          // Check for # of image planes.
-         if (_infoheader.planes != 1) return false;
+         else if (_infoheader.planes != CORRECT_PLANES) return false;
          // Check for compression.
-         if (_infoheader.compression != 0) return false;
+         else if (_infoheader.compression != CORRECT_COMPRESSION) return false;
          // Check for 24 bits per pixel.
-         if (_infoheader.bits_per_pixel != 0x18) return false;
+         else if (_infoheader.bits_per_pixel !=
+             CORRECT_BITS_PER_PIXEL) return false;
          // Check number of colors in palette.
-         if (_infoheader.colors_used != 0) return false;
+         else if (_infoheader.colors_used != CORRECT_COLORS_USED) return false;
          // Check number of important colors.
-         if (_infoheader.important_colors != 0) return false;
+         else if (_infoheader.important_colors !=
+             CORRECT_IMPORTANT_COLORS) return false;
          // All checks passed.
-         return true;
+         else
+             return true;
      }
 
  public:
@@ -316,6 +317,56 @@ class BitmapParser {
     void replace_pixels(const std::vector<std::vector<Pixel> >& new_pixels) {
         // Shallow copy is fine, no pointers.
         _pixels = new_pixels;
+    }
+
+    // Accessor for padding.
+    const size_t read_padding() const {
+        return _padding;
+    }
+
+    // Mutator for padding.
+    size_t padding() {
+        return _padding;
+    }
+
+    // Mutator for replacing padding.
+    void replace_padding(size_t new_padding) {
+        _padding = new_padding;
+    }
+
+    /*
+    Returns the number of bytes for row padding for a given width.
+    This function is static - it can be used as a padding calculator
+    on its own without making an instance of BitmapParser.
+    */
+    static size_t row_padding(size_t width) {
+        // Each row must be a multiple of a dword (4 bytes)
+        size_t remainder = (width * CORRECT_BYTES_PER_PIXEL) % DWORD;
+        if (remainder == 0) {
+            return 0;
+        } else {
+            return (DWORD - remainder);
+        }
+    }
+
+    // Overload: if no parameters are passed, uses current width.
+    size_t row_padding() const {
+        return row_padding(_infoheader.width);
+    }
+
+    /*
+    Returns the file size given width and height.
+    This function is static - it can be used as a size calculator
+    on its own without making an instance of BitmapParser.
+    */
+    static size_t calculate_size(size_t width, size_t height) {
+        return ((((CORRECT_BYTES_PER_PIXEL * width) +
+            row_padding(width)) * height) + CORRECT_TOTAL_HEADER_SIZE);
+    }
+
+    // Overload: if no parameters are passed, uses current width and height.
+    size_t calculate_size() const {
+        return calculate_size(_infoheader.width, _infoheader.height);
     }
 
     // Reads and parses a bitmap file.
@@ -510,14 +561,85 @@ class BitmapParser {
         for (std::vector<Pixel>& row : _pixels) {
             for (Pixel& pix : row) {
                 // Average algorithm without overflow.
-                const uint8_t avg = (pix.red / 3) + (pix.green / 3) +
-                    (pix.blue / 3) + (((pix.red % 3) + (pix.green % 3) +
-                    (pix.blue % 3)) / 3);
+                const uint8_t avg = (pix.red / CORRECT_BYTES_PER_PIXEL) +
+                    (pix.green / CORRECT_BYTES_PER_PIXEL) +
+                    (pix.blue / CORRECT_BYTES_PER_PIXEL) +
+                    (((pix.red % CORRECT_BYTES_PER_PIXEL) +
+                    (pix.green % CORRECT_BYTES_PER_PIXEL) +
+                    (pix.blue % CORRECT_BYTES_PER_PIXEL)) /
+                        CORRECT_BYTES_PER_PIXEL);
                 pix.red = avg;
                 pix.green = avg;
                 pix.blue = avg;
             }
         }
+    }
+
+    /*
+    Crops the subset of _pixels from [x_begin, x_end] [y_begin, y_end].
+    Indices are inclusive.
+    Adjusts for metadata changes accordingly, which are:
+    Header - file size
+    Info Header - width and height
+    (Since no compression is assumed, image size can remain zero.)
+    */
+    void crop(size_t x_begin, size_t y_begin, size_t x_end, size_t y_end) {
+        /*
+        Sanity check on indices. If negative ints are passed and casted
+        to size_t they will overflow, so only four checks are needed:
+        1. x_begin and x_end are smaller than the width.
+        2. x_begin is smaller or equal to x_end.
+        3. y_begin and y_end are smaller than the height.
+        4. y_begin is smaller or equal to y_end.
+        */
+        if (!(x_begin < _infoheader.width && x_end < _infoheader.width))
+            throw std::out_of_range(
+                "x_begin and x_end must be smaller than width!\n");
+        else if (!(x_begin <= x_end))
+            throw std::out_of_range(
+                "x_begin must be smaller than or equal to x_end!\n");
+        else if (!(y_begin < _infoheader.height && y_end < _infoheader.height))
+            throw std::out_of_range(
+                "y_begin and y_end must be smaller than height!\n");
+        else if (!(y_begin <= y_end))
+            throw std::out_of_range(
+                "y_begin must be smaller than or equal to y_end!\n");
+        // Sanity checks passed, begin cropping.
+        const size_t new_width = x_end - x_begin;
+        const size_t new_height = y_end - y_begin;
+        // Vector's range ctor doesn't like in-place cropping
+        std::vector<std::vector<Pixel> > new_pixels(new_height,
+            std::vector<Pixel>(new_width));
+        // Indices for the new pixels vector.
+        size_t row_idx = 0;
+        size_t col_idx = 0;
+        /*
+        Outer loop iterator traverses the vector of vectors of Pixels;
+        inner loop iterator traverses a vector of Pixels.
+        */
+        std::vector<std::vector<Pixel> >::iterator row_it;
+        std::vector<Pixel>::iterator col_it;
+        for (row_it = _pixels.begin() + y_begin;
+            row_it < _pixels.begin() + y_begin + new_height;
+            ++row_it) {
+                for (col_it = row_it->begin() + x_begin;
+                    col_it < row_it->begin() + x_begin + new_width;
+                    ++col_it) {
+                        new_pixels[row_idx][col_idx] = *col_it;
+                        ++col_idx;
+                }
+                ++row_idx;
+                col_idx = 0;
+        }
+        // Replace the Pixels vector.
+        _pixels = new_pixels;
+        // Change width and height
+        _infoheader.width = new_width;
+        _infoheader.height = new_height;
+        // Replace the padding
+        _padding = row_padding();
+        // Calculate and change file size
+        _header.file_size = calculate_size();
     }
 };
 #endif  // BITMAPPARSER_H_

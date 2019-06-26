@@ -27,7 +27,8 @@ int main(int argc, char* argv[]) {
     //test.invert_colors();
     //test.flip_horizontal();
     //test.flip_vertical();
-    test.grayscale();
+    //test.grayscale();
+    test.crop(100, 0, 400, 300);
     test.save(argv[2]);
     return 0;
 }
