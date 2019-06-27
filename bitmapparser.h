@@ -164,6 +164,7 @@ class BitmapParser {
     void isolate_green();
     void isolate_blue();
     void sepia();
+    void clear_data();
 };
 
 /*
@@ -767,6 +768,15 @@ void BitmapParser::sepia() {
             pix.blue = (uint8_t)float_blue;
         }
     }
+}
+
+// Clears all state stored in this instance.
+void BitmapParser::clear_data() {
+    _fileptr = nullptr;
+    _header = Header();
+    _infoheader = InfoHeader();
+    _pixels.clear();
+    _padding = 0;
 }
 
 #endif  // BITMAPPARSER_H_
