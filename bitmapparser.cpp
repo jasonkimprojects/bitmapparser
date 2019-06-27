@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     BitmapParser test(argv[1]);
-    //test.print_metadata(false);
+    test.print_metadata(false);
     //test.print_metadata(true);
     //test.print_pixels(false);
     //test.print_pixels(true);
@@ -28,7 +28,9 @@ int main(int argc, char* argv[]) {
     //test.flip_horizontal();
     //test.flip_vertical();
     //test.grayscale();
-    test.crop(100, 0, 400, 300);
+    test.rotate90_right();
+    //test.rotate90_left();
+    test.sepia();
     test.save(argv[2]);
     return 0;
 }
