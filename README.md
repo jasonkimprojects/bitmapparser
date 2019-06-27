@@ -1,5 +1,4 @@
 # BitmapParser
-***
 
 A short header-only library to read, write, and make simple edits on bitmap images. Only images with 24-bit uncompressed color are supported, to keep the project simple.
 
@@ -9,5 +8,5 @@ I referred to Google's style guide for C++ while writing *BitmapParser* for the 
 
 Last but not least, this library is licensed under the GNU GPL v3.0.
 
-Jason Kim
+Jason Kim  
 June 27, 2019
