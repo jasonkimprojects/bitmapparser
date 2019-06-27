@@ -11,7 +11,7 @@ The style confroms to Google's coding style guide for C++,
 and has been checked with cpplint.
 
 Jason Kim
-June 26, 2019
+June 27, 2019
 */
 
 #ifndef BITMAPPARSER_H_
@@ -118,55 +118,76 @@ class BitmapParser {
     std::vector<std::vector<Pixel> > _pixels;
     size_t _padding;
 
-    // PRIVATE FUNCTION HEADERS
+    /* PRIVATE FUNCTION HEADERS */
+    // Wrapper for fread with error handling.
     void check_read(void* buffer, size_t size, size_t count, FILE* stream);
+    // Wrapper for fwrite with error handling.
     void check_write(void* buffer, size_t size, size_t count, FILE* stream);
+    // Input and output for the header struct.
     void import_header();
     void write_header();
+    // Input and output for the info header struct.
     void import_infoheader();
     void write_infoheader();
+    // Check on image compatibility and correctness.
     bool compatible() const;
 
  public:
-    // PUBLIC FUNCTION HEADERS
+    /* PUBLIC FUNCTION HEADERS */
+    // Constructors.
     BitmapParser();
     explicit BitmapParser(const char* filename);
     explicit BitmapParser(const std::string& filename);
+    // Header accessors and mutators.
     const Header& read_header() const;
     Header& header();
     void replace_header(const Header& new_header);
+    // Info header accessors and mutators.
     const InfoHeader& read_infoheader() const;
     InfoHeader& infoheader();
     void replace_infoheader(const InfoHeader& new_infoheader);
+    // Pixels vector accessors and mutators.
     const std::vector<std::vector<Pixel> >& read_pixels() const;
     std::vector<std::vector<Pixel> >& pixels();
     void replace_pixels(const std::vector<std::vector<Pixel> >& new_pixels);
+    // Padding accessors and mutators.
     const size_t read_padding() const;
     size_t padding();
     void replace_padding(size_t new_padding);
+    // Calculator for row padding.
     static size_t row_padding(size_t width);
     size_t row_padding() const;
+    // Calculator for file size.
     static size_t calculate_size(size_t width, size_t height);
     size_t calculate_size() const;
+    // Read from a bitmap file.
     void import(const char* filename);
+    // Write to a bitmap file.
     void save(const char* filename);
+    // Erase all data.
+    void clear_data();
+    // Print information about the image.
     void print_metadata(bool hex) const;
     void print_pixels(bool hex) const;
-    void invert_colors();
+    // Image reflections.
     void flip_horizontal();
     void flip_vertical();
-    void grayscale();
-    void crop(size_t x_begin, size_t y_begin, size_t x_end, size_t y_end);
+    // Image transposition and rotations.
     void transpose();
     void rotate90_left();
     void rotate90_right();
+    // Image cropping.
+    void crop(size_t x_begin, size_t y_begin, size_t x_end, size_t y_end);
+    // Another image on top of this image.
+    void superimpose(const BitmapParser& other,
+        size_t x_begin, size_t y_begin);
+    // Color filters.
+    void invert_colors();
+    void grayscale();
+    void sepia();
     void isolate_red();
     void isolate_green();
     void isolate_blue();
-    void sepia();
-    void clear_data();
-    void superimpose(const BitmapParser& other,
-        size_t x_begin, size_t y_begin);
 };
 
 /*
@@ -501,6 +522,15 @@ void BitmapParser::save(const char* filename) {
     fclose(_fileptr);
 }
 
+// Clears all state stored in this instance.
+void BitmapParser::clear_data() {
+    _fileptr = nullptr;
+    _header = Header();
+    _infoheader = InfoHeader();
+    _pixels.clear();
+    _padding = 0;
+}
+
 // Prints information about the header and info header.
 void BitmapParser::print_metadata(bool hex) const {
     // For displaying text dividers.
@@ -573,18 +603,6 @@ void BitmapParser::print_pixels(bool hex) const {
     }
 }
 
-// Inverts the colors of the image.
-void BitmapParser::invert_colors() {
-    const uint8_t color_max = 0xff;
-    for (std::vector<Pixel>& row : _pixels) {
-        for (Pixel& pix : row) {
-            pix.red = color_max - pix.red;
-            pix.green = color_max - pix.green;
-            pix.blue = color_max - pix.blue;
-        }
-    }
-}
-
 // Flips the image horizontally.
 void BitmapParser::flip_horizontal() {
     for (std::vector<Pixel>& row : _pixels) {
@@ -609,23 +627,45 @@ void BitmapParser::flip_vertical() {
     }
 }
 
-// Turns the image into grayscale using the average method.
-void BitmapParser::grayscale() {
-    for (std::vector<Pixel>& row : _pixels) {
-        for (Pixel& pix : row) {
-            // Average algorithm without overflow.
-            const uint8_t avg = (pix.red / CORRECT_BYTES_PER_PIXEL) +
-                (pix.green / CORRECT_BYTES_PER_PIXEL) +
-                (pix.blue / CORRECT_BYTES_PER_PIXEL) +
-                (((pix.red % CORRECT_BYTES_PER_PIXEL) +
-                (pix.green % CORRECT_BYTES_PER_PIXEL) +
-                    (pix.blue % CORRECT_BYTES_PER_PIXEL)) /
-                    CORRECT_BYTES_PER_PIXEL);
-            pix.red = avg;
-            pix.green = avg;
-            pix.blue = avg;
+/*
+Transposes the image. The nth row becomes the nth column,
+and vice versa. Preliminary step for rotation.
+*/
+void BitmapParser::transpose() {
+    // New pixels vector with width and height interchanged.
+    std::vector<std::vector<Pixel> > new_pixels(_infoheader.width,
+        std::vector<Pixel>(_infoheader.height));
+    // Copy elements in transposed order.
+    for (size_t row = 0; row < _infoheader.height; ++row) {
+        for (size_t col = 0; col < _infoheader.width; ++col) {
+            new_pixels[col][row] = _pixels[row][col];
         }
     }
+    // Replace the pixels vector.
+    _pixels = new_pixels;
+    // Change width and height.
+    std::swap(_infoheader.width, _infoheader.height);
+    // Replace the padding, now that width is changed
+    _padding = row_padding();
+    /*
+    Calculate and change file size, may differ
+    due to row padding.
+    */
+    _header.file_size = calculate_size();
+}
+
+// Rotates the image 90 degrees counterclockwise.
+void BitmapParser::rotate90_left() {
+    transpose();
+    // Then reverse the rows.
+    flip_vertical();
+}
+
+// Rotates the image 90 degrees clockwise.
+void BitmapParser::rotate90_right() {
+    transpose();
+    // Then reverse the columns.
+    flip_horizontal();
 }
 
 /*
@@ -678,110 +718,6 @@ void BitmapParser::crop(size_t x_begin, size_t y_begin,
 }
 
 /*
-Transposes the image. The nth row becomes the nth column,
-and vice versa. Preliminary step for rotation.
-*/
-void BitmapParser::transpose() {
-    // New pixels vector with width and height interchanged.
-    std::vector<std::vector<Pixel> > new_pixels(_infoheader.width,
-        std::vector<Pixel>(_infoheader.height));
-    // Copy elements in transposed order.
-    for (size_t row = 0; row < _infoheader.height; ++row) {
-        for (size_t col = 0; col < _infoheader.width; ++col) {
-            new_pixels[col][row] = _pixels[row][col];
-        }
-    }
-    // Replace the pixels vector.
-    _pixels = new_pixels;
-    // Change width and height.
-    std::swap(_infoheader.width, _infoheader.height);
-    // Replace the padding, now that width is changed
-    _padding = row_padding();
-    /*
-    Calculate and change file size, may differ
-    due to row padding.
-    */
-    _header.file_size = calculate_size();
-}
-
-// Rotates the image 90 degrees counterclockwise.
-void BitmapParser::rotate90_left() {
-    transpose();
-    // Then reverse the rows.
-    flip_vertical();
-}
-
-// Rotates the image 90 degrees clockwise.
-void BitmapParser::rotate90_right() {
-    transpose();
-    // Then reverse the columns.
-    flip_horizontal();
-}
-
-// Leave color values for red channel only.
-void BitmapParser::isolate_red() {
-    for (std::vector<Pixel>& row : _pixels) {
-        for (Pixel& pix : row) {
-            pix.green = 0;
-            pix.blue = 0;
-        }
-    }
-}
-
-// Leave color values for green channel only.
-void BitmapParser::isolate_green() {
-    for (std::vector<Pixel>& row : _pixels) {
-        for (Pixel& pix : row) {
-            pix.red = 0;
-            pix.blue = 0;
-        }
-    }
-}
-
-// Leave color values for blue channel only.
-void BitmapParser::isolate_blue() {
-    for (std::vector<Pixel>& row : _pixels) {
-        for (Pixel& pix : row) {
-            pix.red = 0;
-            pix.green = 0;
-        }
-    }
-}
-
-// Sepia colored filter.
-void BitmapParser::sepia() {
-    const double MAX_VAL = 255.0;
-    for (std::vector<Pixel>& row : _pixels) {
-        for (Pixel& pix : row) {
-            // Using Microsoft's ratios.
-            double float_red = 0.393 * pix.red + 0.769 * pix.green
-                + 0.189 * pix.blue;
-            double float_green = 0.349 * pix.red + 0.686 * pix.green
-                + 0.168 * pix.blue;
-            double float_blue = 0.272 * pix.red + 0.534 * pix.green
-                + 0.131 * pix.blue;
-            // If greater than 255, bring it down.
-            if (float_red > MAX_VAL) float_red = MAX_VAL;
-            if (float_green > MAX_VAL) float_green = MAX_VAL;
-            if (float_blue > MAX_VAL) float_blue = MAX_VAL;
-            // Then cast to uint8_t.
-            pix.red = (uint8_t)float_red;
-            pix.green = (uint8_t)float_green;
-            pix.blue = (uint8_t)float_blue;
-        }
-    }
-}
-
-// Clears all state stored in this instance.
-void BitmapParser::clear_data() {
-    _fileptr = nullptr;
-    _header = Header();
-    _infoheader = InfoHeader();
-    _pixels.clear();
-    _padding = 0;
-}
-
-/*
 Superimposes another BitmapParser instance's image
 onto this instance's image at the desired position.
 */
@@ -819,6 +755,91 @@ void BitmapParser::superimpose(const BitmapParser& other,
         col_idx = x_begin;
     }
     // Image dimensions are identical, nothing to do.
+}
+
+// Inverts the colors of the image.
+void BitmapParser::invert_colors() {
+    const uint8_t color_max = 0xff;
+    for (std::vector<Pixel>& row : _pixels) {
+        for (Pixel& pix : row) {
+            pix.red = color_max - pix.red;
+            pix.green = color_max - pix.green;
+            pix.blue = color_max - pix.blue;
+        }
+    }
+}
+
+// Turns the image into grayscale using the average method.
+void BitmapParser::grayscale() {
+    for (std::vector<Pixel>& row : _pixels) {
+        for (Pixel& pix : row) {
+            // Average algorithm without overflow.
+            const uint8_t avg = (pix.red / CORRECT_BYTES_PER_PIXEL) +
+                (pix.green / CORRECT_BYTES_PER_PIXEL) +
+                (pix.blue / CORRECT_BYTES_PER_PIXEL) +
+                (((pix.red % CORRECT_BYTES_PER_PIXEL) +
+                (pix.green % CORRECT_BYTES_PER_PIXEL) +
+                    (pix.blue % CORRECT_BYTES_PER_PIXEL)) /
+                    CORRECT_BYTES_PER_PIXEL);
+            pix.red = avg;
+            pix.green = avg;
+            pix.blue = avg;
+        }
+    }
+}
+
+// Sepia colored filter.
+void BitmapParser::sepia() {
+    const double MAX_VAL = 255.0;
+    for (std::vector<Pixel>& row : _pixels) {
+        for (Pixel& pix : row) {
+            // Using Microsoft's ratios.
+            double float_red = 0.393 * pix.red + 0.769 * pix.green
+                + 0.189 * pix.blue;
+            double float_green = 0.349 * pix.red + 0.686 * pix.green
+                + 0.168 * pix.blue;
+            double float_blue = 0.272 * pix.red + 0.534 * pix.green
+                + 0.131 * pix.blue;
+            // If greater than 255, bring it down.
+            if (float_red > MAX_VAL) float_red = MAX_VAL;
+            if (float_green > MAX_VAL) float_green = MAX_VAL;
+            if (float_blue > MAX_VAL) float_blue = MAX_VAL;
+            // Then cast to uint8_t.
+            pix.red = (uint8_t)float_red;
+            pix.green = (uint8_t)float_green;
+            pix.blue = (uint8_t)float_blue;
+        }
+    }
+}
+
+// Leave color values for red channel only.
+void BitmapParser::isolate_red() {
+    for (std::vector<Pixel>& row : _pixels) {
+        for (Pixel& pix : row) {
+            pix.green = 0;
+            pix.blue = 0;
+        }
+    }
+}
+
+// Leave color values for green channel only.
+void BitmapParser::isolate_green() {
+    for (std::vector<Pixel>& row : _pixels) {
+        for (Pixel& pix : row) {
+            pix.red = 0;
+            pix.blue = 0;
+        }
+    }
+}
+
+// Leave color values for blue channel only.
+void BitmapParser::isolate_blue() {
+    for (std::vector<Pixel>& row : _pixels) {
+        for (Pixel& pix : row) {
+            pix.red = 0;
+            pix.green = 0;
+        }
+    }
 }
 
 #endif  // BITMAPPARSER_H_
