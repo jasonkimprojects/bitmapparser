@@ -165,6 +165,8 @@ class BitmapParser {
     void isolate_blue();
     void sepia();
     void clear_data();
+    void superimpose(const BitmapParser& other,
+        size_t x_begin, size_t y_begin);
 };
 
 /*
@@ -777,6 +779,46 @@ void BitmapParser::clear_data() {
     _infoheader = InfoHeader();
     _pixels.clear();
     _padding = 0;
+}
+
+/*
+Superimposes another BitmapParser instance's image
+onto this instance's image at the desired position.
+*/
+void BitmapParser::superimpose(const BitmapParser& other,
+    size_t x_begin, size_t y_begin) {
+    /*
+    Sanity check on indices. Negative ints passed will overflow,
+    so check just for the following:
+    1. x_begin + <width of other image> is smaller than this->width.
+    2. x_begin is smaller than this->width
+    (to account for overflow when other image width is added.)
+    3. y_begin + <height of other image> is smaller than this->height.
+    4. y_begin is smaller than this->height
+    (to account for overflow when other image height is added.)
+    */
+    if (!(x_begin < _infoheader.width && y_begin < _infoheader.height))
+        throw std::out_of_range(
+            "Invalid starting position!\n");
+    else if (!(x_begin + other._infoheader.width < _infoheader.width))
+        // Able to access other's privates because same class
+        throw std::out_of_range(
+            "Width of superimposed image exceeds original!\n");
+    else if (!(y_begin + other._infoheader.height < _infoheader.height))
+        throw std::out_of_range(
+            "Height of superimposed image exceeds original!\n");
+    // Sanity checks passed, begin superimposing.
+    size_t row_idx = y_begin;
+    size_t col_idx = x_begin;
+    for (const std::vector<Pixel>& row : other._pixels) {
+        for (const Pixel& pix : row) {
+            _pixels[row_idx][col_idx] = pix;
+            ++col_idx;
+        }
+        ++row_idx;
+        col_idx = x_begin;
+    }
+    // Image dimensions are identical, nothing to do.
 }
 
 #endif  // BITMAPPARSER_H_
