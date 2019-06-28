@@ -37,7 +37,7 @@ Note that if you download the header to a subfolder, `src/` for example, add the
 *BitmapParser* has the following member variables. They are all private for the sake of encapsulation, but there are accessor and mutator functions for all of them **except** the file pointer.
 
 * `_fileptr`: A `FILE*` to read and write bitmap files
-* `_header`: This is a `Header` struct, defined in the library itself. It contains the information corresponding to a bitmap image's header. [For more information on the bitmap file structure, click here.] (http://www.ece.ualberta.ca/~elliott/ee552/studentAppNotes/2003_w/misc/bmp_file_format/bmp_file_format.htm)
+* `_header`: This is a `Header` struct, defined in the library itself. It contains the information corresponding to a bitmap image's header. [For more information on the bitmap file structure, click here.](http://www.ece.ualberta.ca/~elliott/ee552/studentAppNotes/2003_w/misc/bmp_file_format/bmp_file_format.htm)
 
 * `_infoheader`: This is an `InfoHeader` struct, defined in the library itself. It contains the information corresponding to a bitmap image's info header. Click the link above for an explanation on the info header.
 
