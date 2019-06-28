@@ -11,7 +11,7 @@ Last but not least, this library is licensed under the GNU GPL v3.0.
 Jason Kim  
 June 27, 2019
 
-# Instructions
+## Instructions - Core
 #### 1. Using *BitmapParser* in your code:
 Easy as pie, since it's just a header. `#include "bitmapparser.h"`
 Note that if you download the header to a subfolder, `src/` for example, add the file path to the name: `#include "src/bitmapparser.h"`
@@ -19,7 +19,7 @@ Note that if you download the header to a subfolder, `src/` for example, add the
 #### 2. Included Libraries
 *BitmapParser* includes the following C++ STL libraries:
  
-* `iostream` for printing to stdout
+* `iostream` for printing to `stdout`
 * `vector` for storing pixels
 * `string` explicitly included for portability, although `iostream` usually includes `string`
 * `stdexcept` for error handling
@@ -41,7 +41,7 @@ Note that if you download the header to a subfolder, `src/` for example, add the
 
 * `_infoheader`: This is an `InfoHeader` struct, defined in the library itself. It contains the information corresponding to a bitmap image's info header. Click the link above for an explanation on the info header.
 
-* `_pixels`: A `std::vector<std::vector<Pixel>>`, or a vector of vectors of Pixels (2-dimensional). `Pixel`is a struct also defined in the library, and it consists of three `uint8_t` (bytes) for the red, green, and blue channels.
+* `_pixels`: A `std::vector<std::vector<Pixel>>`, or a vector of vectors of Pixels (2-dimensional). `Pixel`is a struct also defined in the library, and it consists of three `uint8_t` (bytes) for the red, green, and blue channels. This is the core component of *BitmapParser* where an image file is decoded pixel by pixel.
 
 * `_padding`: A `size_t` which stores the number of row padding bytes (0-3). Click the link and look at **Additional Info** for an explanation on row padding.
 
@@ -78,3 +78,70 @@ The general rule for naming is that read only accessors are prefixed by **read**
 * `const size_t read_padding() const` - read only
 * `size_t padding()` - read and write
 * void replace_padding(size_t new_padding) - write only
+
+#### 7. Static Functions
+*BitmapParser* has two static functions that can be used without creating an instance of *BitmapParser*. There are also wrappers for the static functions that are designed to be used within the class. These wrappers take no arguments and take inputs from member variables.
+
+* `static size_t row_padding(size_t width)`  calculates the row padding in bytes (0-3 inclusive) given the width of the image.
+
+* `size_t row_padding() const` uses the width of the current instance instead.
+
+* `static size_t calculate_size(size_t width, size_t height)` calculates file size in bytes given the width and height of the image.
+
+* `size_t calculate_size() const` uses the width and height of the current instance instead.
+
+The two functions can also be used as simple calculators. For example:  
+`size_t file_size = BitmapParser.calculate_size(800, 600);`
+
+#### 8. Reading and Writing
+Both functions take a `const char*` for the file name. Please note that if you save to an existing file, **all the contents of the file will be overwritten!** The function signatures are as follows:
+
+* `void import(const char* filename)`
+* `void save(const char* filename)`
+
+Furthermore, the function `void clear_data()` erases all data stored in this instance.
+
+#### 9. Printing
+*BitmapParser* has two functions for printing information about the image to `stdout`. The function signatures are as follows:
+
+* `void print_metadata(bool hex) const` prints the values in the header and info header of the image. The boolean argument `hex` determines the number base of the output; `false` for decimal, and `true` for hexadecimal.
+
+* `void print_pixels(bool hex) const` prints the RGB values of each and every pixel in the image. **The output is likely to be very long, and I recommend that you pipe it to a file instead of the console** (append `> OUTPUT_FILE_NAME` when running from the console). `hex` works the same way as before; `false` for decimal RGB values (0-255), `true` for hexadecimal RGB values (0x0-0xFF). 
+
+## Instructions - Image Editing
+In addition to reading and writing bitmap images, *BitmapParser* packs a subset of image editing functions.
+
+#### 1. Reflections
+
+* `void flip_horizontal()` flips the image horizontally, i.e. over the y-axis, reversing each row.
+
+* `void flip_vertical()` flips the image vertically, i.e. over the x-axis, reversing each column.
+
+#### 2. Transposition and Rotations
+
+* `void transpose()` transposes the image. (Rows become columns, columns become rows.)
+
+* `void rotate90_left()` rotates the image 90 degrees counterclockwise (-90 degrees).
+
+* `void rotate90_right()` rotates the image 90 degrees clockwise.
+
+#### 3. Cropping
+
+* `void crop(size_t x_begin, size_t y_begin, size_t x_end, size_t y_end)` crops the image from width `x_begin` to `x_end` and height from `y_begin` to `y_end`, **inclusive**.
+
+#### 4. Superimposing
+
+* `void superimpose(const BitmapParser& other, size_t x_begin, size_t y_begin)` brings the image in the instance `other` on top of this image at offset (`x_begin`, `y_begin`).
+
+#### 5. Color Filters
+* `void invert_colors()` inverts the colors. All channels are replaced by their additive complement of 255.
+
+* `void grayscale()` turns the image to grayscale, using the average method.
+
+* `void sepia()` applies a sepia filter on the image, using Microsoft's channel weights.
+
+* `void isolate_red()` preserves red channel values and eliminates green and blue hues from the image.
+
+* `void isolate_green()` preserves green channel values and eliminates red and blue hues from the image.
+
+* `void isolate_blue()` preserves blue channel values and eliminates red and green hues from the image.
